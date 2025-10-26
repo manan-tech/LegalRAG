@@ -18,4 +18,5 @@ streamlit
 crewai
 crewai_tools
 qdrant_client
+langchain_ollama
 LiteLLM
