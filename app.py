@@ -1,7 +1,7 @@
 from altair import Y
 import streamlit as st
 from langchain_groq import ChatGroq
-from langchain_ollama import OllamaEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.tools import tool
 from langchain_community.document_loaders import PyPDFLoader
@@ -9,46 +9,24 @@ from langchain.agents import create_agent
 from dotenv import load_dotenv
 import tempfile
 import os
-import re
-from datetime import datetime
 
-st.set_page_config(
-    page_title="Explainable Legal Agent",
-    page_icon="⚖️",
-    layout="wide"
-)
-
+st.set_page_config(page_title="Explainable Legal Agent", page_icon="⚖️", layout="wide")
 load_dotenv()
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 @st.cache_resource
 def get_llm(api_key):
-    return ChatGroq(
-        model="openai/gpt-oss-120b",
-        api_key=api_key
-    )
+    return ChatGroq(model="openai/gpt-oss-120b", api_key=api_key)
 
 @st.cache_resource
 def get_embeddings():
-    try:
-        embeddings = OllamaEmbeddings(model="embeddinggemma:300m")
-        embeddings.embed_query("test")
-        return embeddings
-    except Exception as e:
-        st.error(f"Ollama connection failed: {e}. Please ensure Ollama is running.", icon="🚨")
-        st.stop()
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 @st.cache_resource
 def load_vector_stores(_embeddings):
-    try:
-        cpc_vectorstore = FAISS.load_local("faiss_index_cpc", _embeddings, allow_dangerous_deserialization=True)
-        army_vectorstore = FAISS.load_local("faiss_index_army_act", _embeddings, allow_dangerous_deserialization=True)
-        return cpc_vectorstore, army_vectorstore
-    except Exception as e:
-        st.error(f"Failed to load vector stores: {e}", icon="🚨")
-        st.info("Please make sure the 'faiss_index_cpc' and 'faiss_index_army_act' directories exist.")
-        st.stop()
-
+    cpc_vectorstore = FAISS.load_local("faiss_index_cpc", _embeddings, allow_dangerous_deserialization=True)
+    army_vectorstore = FAISS.load_local("faiss_index_army_act", _embeddings, allow_dangerous_deserialization=True)
+    return cpc_vectorstore, army_vectorstore
 
 def main():
     st.title("Explainable Legal Agent ⚖️")
@@ -56,16 +34,12 @@ def main():
 
     with st.sidebar:
         st.header("Configuration")
-        st.info("Ensure Ollama is running locally to use the embedding model.")
-        
         groq_api_key = os.environ.get("GROQ_API_KEY")
         if not groq_api_key:
             groq_api_key = st.text_input("Enter your Groq API Key:", type="password")
-        
         if not groq_api_key:
             st.warning("Please enter your Groq API Key to proceed.")
             st.stop()
-
         uploaded_case = st.file_uploader("📄 Upload Case File (PDF)", type=["pdf"])
         if uploaded_case is not None:
             temp_case_path = os.path.join(tempfile.gettempdir(), uploaded_case.name)
@@ -81,7 +55,6 @@ def main():
         embeddings = get_embeddings()
         cpc_vs, army_vs = load_vector_stores(embeddings)
 
-    # ---- TOOLS ----
     @tool
     def retrieve_from_case_file(query: str) -> str:
         """Reads the uploaded case file and returns its contents."""
@@ -93,19 +66,13 @@ def main():
     def retrieve_from_cpc(query: str) -> str:
         """Searches CPC sections relevant to a civil case."""
         retrieved_docs = cpc_vs.similarity_search(query, k=3)
-        return "\n\n".join(
-            f"📘 Source Page: {doc.metadata.get('page', 'Unknown')}\n\n{doc.page_content}"
-            for doc in retrieved_docs
-        )
+        return "\n\n".join(f"📘 Source Page: {doc.metadata.get('page', 'Unknown')}\n\n{doc.page_content}" for doc in retrieved_docs)
 
     @tool
     def retrieve_from_army_code(query: str) -> str:
         """Searches military law sections if applicable."""
         retrieved_docs = army_vs.similarity_search(query, k=3)
-        return "\n\n".join(
-            f"🪖 Source Page: {doc.metadata.get('page', 'Unknown')}\n\n{doc.page_content}"
-            for doc in retrieved_docs
-        )
+        return "\n\n".join(f"🪖 Source Page: {doc.metadata.get('page', 'Unknown')}\n\n{doc.page_content}" for doc in retrieved_docs)
 
     tools = [retrieve_from_case_file, retrieve_from_cpc, retrieve_from_army_code]
 
