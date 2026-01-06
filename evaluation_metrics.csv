@@ -1,0 +1,4 @@
+Test_ID,Query,Latency_Seconds,Keyword_Recall_Msg,Recall_Percent,Citation_Count
+1,Analyze the case and suggest a legal strategy.,39.18,4/4,100.0,0
+2,Which specific Army Act sections are relevant?,151.68,3/3,100.0,0
+3,What is the procedure for appeal in this jurisdiction?,115.11,3/3,100.0,0

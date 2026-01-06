@@ -4,11 +4,14 @@ from langchain_groq import ChatGroq
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.tools import tool
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.agents import create_agent
+from langchain_community.document_loaders import UnstructuredPDFLoader
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import ToolMessage, AIMessage
 from dotenv import load_dotenv
 import tempfile
 import os
+import datetime
+import re
 
 st.set_page_config(page_title="Explainable Legal Agent", page_icon="⚖️", layout="wide")
 load_dotenv()
@@ -49,6 +52,8 @@ def main():
         else:
             st.warning("Please upload a case file to continue.")
             st.stop()
+            # Set a dummy path to avoid errors before upload, though st.stop handles it.
+            temp_case_path = ""
 
     with st.spinner("Loading models and vector stores..."):
         llm = get_llm(groq_api_key)
@@ -58,7 +63,9 @@ def main():
     @tool
     def retrieve_from_case_file(query: str) -> str:
         """Reads the uploaded case file and returns its contents."""
-        loader = PyPDFLoader(temp_case_path)
+        if not os.path.exists(temp_case_path):
+             return "Case file not found."
+        loader = UnstructuredPDFLoader(temp_case_path)
         docs = loader.load()
         return "\n\n".join(doc.page_content for doc in docs)
 
@@ -89,43 +96,50 @@ def main():
         "and suggest actionable next steps for the defendant."
     )
 
-    agent = create_agent(llm, tools, system_prompt=system_prompt)
+    # Replaced create_agent (Legacy) with create_react_agent (LangGraph)
+    agent_graph = create_react_agent(llm, tools, prompt=system_prompt)
 
     def get_agent_output(agent_to_run, query):
         final_output = ""
         trace_logs = []
-        tool_usage = {t.name: 0 for t in tools}
-        MAX_CALLS = 3
-
+        
         try:
-            for event in agent_to_run.stream(
-                {"messages": [{"role": "user", "content": query}]},
-                stream_mode="values",
-            ):
-                if "messages" in event and event["messages"]:
-                    final_output = event["messages"][-1].content
-
-                if event.get("type") == "tool":
-                    tool_name = event.get("tool", "unknown_tool")
-
-                    if tool_name in tool_usage:
-                        if tool_usage[tool_name] >= MAX_CALLS:
-                            trace_logs.append({
-                                "tool": tool_name,
-                                "timestamp": datetime.now().strftime("%H:%M:%S"),
-                                "input": event.get("input", ""),
-                                "output": "⚠️ Skipped - Max call limit reached"
-                            })
-                            continue
-
-                        tool_usage[tool_name] += 1
+            # LangGraph: We invoke the graph with the initial state
+            response = agent_to_run.invoke({"messages": [{"role": "user", "content": query}]})
+            
+            # Extract Messages history to build Trace Logs
+            messages = response.get("messages", [])
+            
+            # The last message is the final answer
+            if messages:
+                raw_output = messages[-1].content
+                # Fix Issue 1: Remove <br> tags
+                final_output = re.sub(r'<br\s*/?>', '\n', raw_output, flags=re.IGNORECASE)
+            
+            # Iterate through messages to find Tool Calls matches
+            # Pattern: AIMessage (with tool_calls) -> ToolMessage (with artifact/content)
+            for i, msg in enumerate(messages):
+                if isinstance(msg, AIMessage) and getattr(msg, 'tool_calls', None):
+                    for tool_call in msg.tool_calls:
+                        tool_name = tool_call.get('name')
+                        tool_args = tool_call.get('args')
+                        tool_id = tool_call.get('id')
+                        
+                        # Find corresponding ToolMessage
+                        tool_output = "No output found."
+                        # Scan forward for the ToolMessage with this tool_call_id
+                        for next_msg in messages[i+1:]:
+                            if isinstance(next_msg, ToolMessage) and next_msg.tool_call_id == tool_id:
+                                tool_output = next_msg.content
+                                break
+                        
                         trace_logs.append({
                             "tool": tool_name,
-                            "timestamp": datetime.now().strftime("%H:%M:%S"),
-                            "input": event.get("input", ""),
-                            "output": event.get("output", "")
+                            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
+                            "input": str(tool_args),
+                            "output": tool_output
                         })
-
+                        
             return final_output, trace_logs
 
         except Exception as e:
@@ -138,7 +152,7 @@ def main():
 
     if st.button("🚀 Run Legal Agent", type="primary"):
         with st.spinner("Analyzing case..."):
-            final_answer, trace_logs = get_agent_output(agent, user_query)
+            final_answer, trace_logs = get_agent_output(agent_graph, user_query)
 
         st.markdown("## 🧭 Final Roadmap")
         st.markdown(final_answer)

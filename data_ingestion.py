@@ -1,4 +1,4 @@
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
@@ -18,8 +18,8 @@ def create_db(file_path):
         print(f"Input file '{file_path}' not found. Skipping.")
         return
 
-    print(f"Loading PDF: {file_path}")
-    loader = PyPDFLoader(file_path)
+    print(f"Loading PDF with Unstructured: {file_path}")
+    loader = UnstructuredPDFLoader(file_path)
     docs = loader.load()
     print(f"Loaded {len(docs)} pages.")
 
