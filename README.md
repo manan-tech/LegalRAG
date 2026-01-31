@@ -107,5 +107,7 @@ This will generate a `pipeline_evaluation_report.md` with detailed performance m
 *   **Embeddings:** HuggingFace (`all-MiniLM-L6-v2`)
 *   **ETL/Ingestion:** Unstructured.io
 *   **Frontend:** Streamlit
+
 ## Contributors
 *  **Parthiv Godrihal**
+*  **Nilay Jain**
